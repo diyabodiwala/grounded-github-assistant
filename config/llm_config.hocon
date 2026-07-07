@@ -1,0 +1,7 @@
+{
+    # Default LLM provider/model, referenced by `ns check-llm-keys` / `ns check-config`.
+    # github_assistant.hocon sets its own llm_config directly; this file is a single
+    # place to swap providers if you switch off Mistral.
+    "class": "langchain_mistralai.chat_models.ChatMistralAI",
+    "model_name": "mistral-medium-2505",
+}

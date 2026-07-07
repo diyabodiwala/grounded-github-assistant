@@ -1,0 +1,46 @@
+{
+  "15": {
+    "number": 15,
+    "title": "OAuth login intermittently fails after redirect",
+    "body": "Some users report that logging in via Google/GitHub OAuth sometimes fails right after being redirected back from the provider, with no clear error message. It seems to happen more often when a user starts the login flow, abandons it, and starts a new one before finishing the first. Possibly related to how we handle the `state` param?",
+    "labels": ["bug", "authentication", "security"],
+    "related_files": ["auth.py", "oauth.py"],
+    "related_pull_requests": [44],
+    "commits": [
+      {
+        "sha": "a1b2c3d",
+        "message": "Add OAuth callback handler",
+        "files_changed": ["auth.py"]
+      },
+      {
+        "sha": "e4f5g6h",
+        "message": "Add state generation for OAuth authorize URL",
+        "files_changed": ["oauth.py"]
+      }
+    ]
+  },
+  "22": {
+    "number": 22,
+    "title": "Session tokens never expire under load testing",
+    "body": "During a load test, sessions created hours ago were still being accepted. Expected sessions to expire after token_ttl_seconds.",
+    "labels": ["bug", "authentication"],
+    "related_files": ["auth.py"],
+    "related_pull_requests": [],
+    "commits": [
+      {
+        "sha": "z9y8x7w",
+        "message": "Add configurable token_ttl_seconds to AuthService",
+        "files_changed": ["auth.py"]
+      }
+    ]
+  },
+  "31": {
+    "number": 31,
+    "title": "Add slugify support for unicode characters",
+    "body": "slugify() currently strips all non a-z0-9 characters, which mangles names with accented characters (e.g. 'Café' becomes 'caf'). Consider transliterating instead of stripping.",
+    "labels": ["enhancement", "utils"],
+    "related_files": ["utils.py"],
+    "related_pull_requests": [],
+    "commits": []
+  }
+}

@@ -1,0 +1,264 @@
+# Grounded Multi-Agent GitHub Coding Assistant (neuro-san)
+
+A multi-agent network, built on [neuro-san-studio](https://github.com/cognizant-ai-lab/neuro-san-studio),
+that helps a developer triage a GitHub issue: "Help me resolve issue #15" in,
+and get back a grounded implementation plan with evidence -- not a guess from
+model memory.
+
+## Problem statement
+
+Resolving an issue well means pulling together several things that live in
+different places: the issue text itself, the relevant source files, the
+relevant docs, and prior related PRs/commits -- then reasoning about all of
+them together without inventing a file, function, or root cause that isn't
+actually there. A single agent doing all of this in one prompt tends to blend
+real retrieved context with plausible-sounding invented detail, especially
+once the context window fills up with several different kinds of source
+material. This project separates that work by domain and adds an
+independent verification pass before anything reaches the user.
+
+## Why multi-agent
+
+- **GitHub agent**, **code retrieval agent**, and **docs agent** each own one
+  narrow, tool-backed concern, so each only has to be right about one thing.
+- **Planner agent** is deliberately tool-less: it only synthesizes from the
+  context the other agents already retrieved, which forces it to work from
+  grounded material instead of reaching for its own knowledge.
+- **Validation agent** doesn't read the planner's summary and trust it -- it
+  independently re-calls the retrieval tools itself and diffs the draft plan
+  against fresh results, catching anything the planner mis-stated, dropped,
+  or invented.
+- **Response agent** only formats already-validated content into the final
+  answer, so formatting concerns never leak into and dilute the fact-finding
+  and validation steps.
+
+## Architecture
+
+```
+                                   User
+                                     │
+                                     ▼
+                             orchestrator
+                            (front-man agent)
+              ┌───────────────┬──────┴───────┬─────────────────┐
+              ▼               ▼              ▼                 ▼
+      github_agent   code_retrieval_agent  docs_agent    (after gathering
+                                                            context, calls
+                                                            planner_agent)
+              │               │              │
+              ▼               ▼              ▼
+       GetIssueTool      SearchCodeTool  SearchDocsTool
+       GetCommitHistoryTool  ReadFileTool
+       GetPullRequestTool    ListRelatedFilesTool
+              │               │              │
+              ▼               ▼              ▼
+     data/issues.json   data/sample_repo/  data/docs/
+     data/pull_requests.json
+
+                             planner_agent
+                        (drafts plan from context;
+                         no tools of its own)
+                                     │
+                                     ▼
+                           validation_agent
+                    (independently re-calls GetIssueTool,
+                     SearchCodeTool, SearchDocsTool, ReadFileTool
+                     to fact-check the draft plan)
+                                     │
+                                     ▼
+                            response_agent
+                    (formats the validated plan + evidence
+                     into the final answer; no tools)
+                                     │
+                                     ▼
+                                 Final Answer
+```
+
+## Agent responsibilities
+
+| Agent | Responsibility | Tools |
+|---|---|---|
+| `orchestrator` | Front-man. Collects the issue number, delegates to specialists, sends the draft plan through validation, and relays the final formatted answer. | — |
+| `github_agent` | Fetches issue text, linked commits, and PR details. | `GetIssueTool`, `GetCommitHistoryTool`, `GetPullRequestTool` |
+| `code_retrieval_agent` | Finds relevant source files/snippets; can list all indexed files or read one in full. | `SearchCodeTool`, `ListRelatedFilesTool`, `ReadFileTool` |
+| `docs_agent` | Finds relevant documentation sections. | `SearchDocsTool` |
+| `planner_agent` | Synthesizes a root-cause + implementation plan **only** from the context it's handed -- no tools of its own, so it can't reach outside the retrieved material. | — |
+| `validation_agent` | Independently re-derives the facts and flags any unsupported claim in the draft plan. | `GetIssueTool`, `SearchCodeTool`, `SearchDocsTool`, `ReadFileTool` |
+| `response_agent` | Formats the validated plan into the final answer with an evidence section. No new claims allowed. | — |
+
+## Tool descriptions
+
+| Tool | Function | Backed by |
+|---|---|---|
+| `GetIssueTool` | `get_issue(issue_number)` | `data/issues.json` |
+| `GetCommitHistoryTool` | `get_commit_history(issue_number)` | `data/issues.json` (`commits` field per issue) |
+| `GetPullRequestTool` | `get_pull_request(pr_number)` | `data/pull_requests.json` |
+| `SearchCodeTool` | `search_code(query)` | keyword search over `data/sample_repo/*.py` |
+| `ListRelatedFilesTool` | `list_related_files()` | directory listing of `data/sample_repo/` |
+| `ReadFileTool` | `read_file(path)` | reads one file from `data/sample_repo/` (basename-only, blocks path traversal) |
+| `SearchDocsTool` | `search_docs(query)` | keyword search over `data/docs/*.md` |
+
+## How grounding works
+
+```
+User Query ("issue #15")
+      │
+      ▼
+GetIssueTool ──▶ data/issues.json
+      │
+      ▼
+SearchCodeTool / SearchDocsTool ──▶ data/sample_repo/, data/docs/
+      │
+      ▼
+Relevant snippets (file name + line number + text)
+      │
+      ▼
+planner_agent (LLM, but constrained to the snippets above)
+      │
+      ▼
+validation_agent (independently re-fetches the same sources and
+                   diffs the draft plan against them)
+      │
+      ▼
+Grounded, evidence-cited response
+```
+
+Every tool that hits a miss (`not_found`) says so explicitly, and every
+agent's instructions forbid treating a `not_found`/error result as "no
+issue" -- they must relay the gap rather than assume a clean/empty answer.
+
+### A deliberate simplification: keyword search, not embeddings
+
+The JD/plan mentions FAISS + sentence-transformers for `search_code` /
+`search_docs`. For a small, fixed local corpus like this one, a plain
+keyword/line-match search (see `coded_tools/github_assistant/data_access.py`)
+gives the same "retrieve real snippets, then ground the LLM in them"
+guarantee, is fully deterministic and unit-testable with zero model
+downloads or network calls, and keeps the project scoped to what a 2-day
+assessment can actually finish end-to-end. Swapping in a real embeddings
+index later is a drop-in replacement for `keyword_search()` -- it wouldn't
+require touching the agent network, the HOCON file, or any other tool. See
+**Future Improvements** below.
+
+## Example queries and outputs
+
+**Query:** `Help me resolve issue #15`
+
+Expected flow: `github_agent` returns the issue ("OAuth login intermittently
+fails after redirect", files `auth.py`/`oauth.py`, linked PR #44);
+`code_retrieval_agent` and `docs_agent` surface `auth.py`'s
+`handle_oauth_callback` (which accepts `state` but never validates it),
+`oauth.py`'s `is_state_valid`, and `authentication_flow.md`'s "Security
+requirement: state validation" section; `planner_agent` proposes calling
+`is_state_valid(state)` inside `handle_oauth_callback` before issuing a
+session; `validation_agent` re-confirms all of that against fresh tool
+calls; `response_agent` returns the plan with an evidence list citing issue
+#15, `auth.py`, `oauth.py`, and `authentication_flow.md`.
+
+**Query:** `Help me resolve issue #9999` (doesn't exist)
+
+Expected flow: `github_agent`'s `GetIssueTool` returns `"error":
+"not_found"`; `orchestrator` stops and tells the user the issue wasn't
+found, rather than inventing a plausible-sounding issue.
+
+**Query:** `Help me resolve issue #31` (a real but unrelated, low-context
+issue -- unicode support in `slugify()`)
+
+Expected flow: retrieval correctly surfaces `utils.py` and nothing from
+`auth.py`/`oauth.py`, demonstrating the retrieval isn't just keyed off issue
+number but actually discriminates by content.
+
+## Project layout
+
+```
+.
+├── registries/
+│   ├── manifest.hocon
+│   └── github_assistant.hocon        # the agent network definition
+├── coded_tools/
+│   └── github_assistant/
+│       ├── data_access.py            # shared JSON loading + keyword search
+│       ├── github_tools.py           # GetIssueTool, GetCommitHistoryTool, GetPullRequestTool
+│       ├── code_search_tool.py       # SearchCodeTool, ListRelatedFilesTool, ReadFileTool
+│       └── document_search_tool.py   # SearchDocsTool
+├── data/
+│   ├── issues.json
+│   ├── pull_requests.json
+│   ├── docs/
+│   │   ├── authentication_flow.md
+│   │   ├── architecture.md
+│   │   └── api.md
+│   └── sample_repo/
+│       ├── auth.py
+│       ├── oauth.py
+│       ├── database.py
+│       └── utils.py
+├── config/
+│   └── llm_config.hocon
+├── tests/
+│   └── test_coded_tools.py
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+Note on structure: the assignment's plan sketched a generic
+`agents/*.py` + `tools/*.py` layout. Real neuro-san doesn't work that way --
+agents are declared as data in the HOCON registry file (instructions +
+tool wiring), and only the *coded tools* are Python, living under
+`coded_tools/<network_name>/`. This repo follows the actual framework
+convention rather than forcing a generic layout onto it.
+
+## Running it
+
+```bash
+# 1. Clone neuro-san-studio and drop this project's files into it
+git clone https://github.com/cognizant-ai-lab/neuro-san-studio
+cd neuro-san-studio
+cp /path/to/grounded-github-assistant/registries/github_assistant.hocon registries/
+cp -r /path/to/grounded-github-assistant/coded_tools/github_assistant coded_tools/
+cp -r /path/to/grounded-github-assistant/data .
+# add "github_assistant.hocon": true to registries/manifest.hocon
+
+# 2. Install deps
+pip install -r requirements.txt
+pip install langchain-mistralai==1.1.2
+
+# 3. Set your key
+export MISTRAL_API_KEY="your-key-here"
+export AGENT_MANIFEST_FILE="./registries/manifest.hocon"
+export AGENT_TOOL_PATH="./coded_tools"
+
+# 4. Run
+python -m neuro_san_studio.run
+```
+
+Open the nsflow UI (default `http://localhost:4173/`), pick
+`github_assistant`, and ask:
+
+> Help me resolve issue #15
+
+## Running the tests (no LLM/API key required)
+
+```bash
+pip install pytest
+pytest tests/ -v
+```
+
+All 14 tests pass without any network access or API key -- they call the
+coded tools directly against the local JSON/file data.
+
+## Future improvements
+
+- Swap `keyword_search()` in `data_access.py` for a real embeddings index
+  (FAISS/Chroma + sentence-transformers), for semantic rather than
+  literal-keyword matching -- the interface (`query -> ranked file matches
+  with snippets`) is already the shape a vector search would return.
+- Point `github_tools.py` at the real GitHub REST API (or PyGithub) instead
+  of local JSON, gated behind a feature flag so the local-mock path still
+  works for offline testing.
+- Extend `planner_agent`'s output into an actual patch/diff (still with a
+  human-approval gate before anything is applied), rather than stopping at
+  a text plan.
+- Add a lightweight relevance-score threshold to `keyword_search()` so very
+  weak matches (score of 1 on a long file) don't get reported as evidence.

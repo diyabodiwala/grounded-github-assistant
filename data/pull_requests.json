@@ -1,0 +1,9 @@
+{
+  "44": {
+    "number": 44,
+    "title": "Initial OAuth callback implementation",
+    "status": "merged",
+    "files_changed": ["auth.py", "oauth.py"],
+    "summary": "Introduced handle_oauth_callback and build_authorization_url. Did not wire up state validation between the two -- flagged as follow-up in issue #15."
+  }
+}

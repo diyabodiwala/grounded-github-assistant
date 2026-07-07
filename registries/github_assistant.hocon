@@ -1,0 +1,373 @@
+{
+    "llm_config": {
+        "model_name": "mistral-medium-2505",
+    },
+
+    "commondefs": {
+        "replacement_strings": {
+            "instructions_prefix": """
+                You are one specialist inside a grounded GitHub coding assistant.
+                You only handle the part of the problem that falls inside your domain.
+                You are STRICTLY FORBIDDEN from answering questions about this specific
+                codebase, issue, or documentation from your own training knowledge or from
+                general familiarity with common bugs. Every specific claim you make (a file
+                name, a line of code, an issue's contents, a doc's contents) MUST come from
+                calling one of your coded tools. If a tool returns "not_found" or an error,
+                say so plainly instead of guessing or filling in a plausible-sounding answer.
+            """,
+            "aaosa_instructions": """
+                When you receive an inquiry:
+                1. Decide whether the inquiry (or the part of it relevant to your domain)
+                   is something you can address by calling your own tool(s).
+                2. If yes, call the appropriate tool(s) with the best available arguments
+                   drawn from the conversation so far.
+                3. Report back only what your tool(s) actually returned, including the
+                   "source" field so the calling agent can cite it. Do not add unstated
+                   facts, and do not smooth over a "not_found"/"error" result.
+                4. If the inquiry is outside your domain, say so briefly so the calling
+                   agent can route it elsewhere.
+            """
+        },
+        "replacement_values": {}
+    },
+
+    "tools": [
+        {
+            "name": "orchestrator",
+            "function": {
+                "description": """
+                    I am the front-man for a grounded GitHub coding assistant. Give me an
+                    issue number (e.g. "help me resolve issue #15") and I will pull the
+                    issue itself, search the indexed codebase and documentation for
+                    relevant context, draft an implementation plan, have it independently
+                    fact-checked, and hand you back a grounded, evidence-cited recommendation.
+                    This assistant stops at a plan/recommendation -- it does not modify files.
+                """
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `orchestrator`. You are the single point of contact for the user.
+
+                Your job for every "help me resolve issue #N" style inquiry:
+                1. Ask the user for an issue number if one hasn't been given yet.
+                2. Call `github_agent` with that issue number to fetch the issue's title,
+                   body, labels, related files, related pull requests, and commits. If the
+                   issue is not found, tell the user immediately and stop.
+                3. Using the issue's title/body as your search query, call:
+                   - `code_retrieval_agent` to find relevant source files and snippets
+                   - `docs_agent` to find relevant documentation sections
+                4. If the issue mentions a related pull request, call `github_agent` again
+                   to fetch that PR's details.
+                5. Pass everything you've gathered (issue text, code snippets with file
+                   names, doc snippets with file names, PR summary) to `planner_agent` and
+                   ask it to produce a concrete implementation plan.
+                6. Send the draft plan, together with the issue number, to
+                   `validation_agent` for an independent fact-check before finalizing
+                   anything.
+                7. If `validation_agent` flags any unsupported or contradicted claim,
+                   go back and correct the plan (re-calling specialists if needed) before
+                   proceeding. Never pass an answer forward that validation flagged.
+                8. Send the validated plan to `response_agent` to produce the final,
+                   evidence-cited answer for the user, then relay that answer verbatim.
+
+                {aaosa_instructions}
+            """,
+            "tools": [
+                "github_agent",
+                "code_retrieval_agent",
+                "docs_agent",
+                "planner_agent",
+                "validation_agent",
+                "response_agent"
+            ]
+        },
+
+        {
+            "name": "github_agent",
+            "function": {
+                "description": "Fetch issue details, commit history, and pull request details from the local issue tracker.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "issue_number": {"type": "int", "description": "The issue number to look up."},
+                        "pr_number": {"type": "int", "description": "The pull request number to look up, if any."}
+                    },
+                    "required": []
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `github_agent`. You have three tools:
+                - `GetIssueTool` (needs issue_number) for the issue's title, body, labels,
+                  related_files, related_pull_requests, and commits
+                - `GetCommitHistoryTool` (needs issue_number) for the commits linked to an issue
+                - `GetPullRequestTool` (needs pr_number) for a specific pull request's details
+
+                Call whichever tool(s) match what you were asked for, and report the results
+                exactly as returned, including the "source" field. If a tool reports
+                "not_found", relay that clearly -- never invent issue or PR content.
+                {aaosa_instructions}
+            """,
+            "tools": ["GetIssueTool", "GetCommitHistoryTool", "GetPullRequestTool"]
+        },
+
+        {
+            "name": "code_retrieval_agent",
+            "function": {
+                "description": "Search the indexed local codebase for files/snippets relevant to a query, list all indexed files, or read a specific file's full contents.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Keywords describing what to search for in the code."},
+                        "path": {"type": "string", "description": "A specific file name to read in full, if requested."}
+                    },
+                    "required": []
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `code_retrieval_agent`. You have three tools:
+                - `SearchCodeTool` (needs query) -- keyword-searches the indexed codebase
+                  and returns matching files with line numbers and snippets
+                - `ListRelatedFilesTool` -- lists every file currently indexed
+                - `ReadFileTool` (needs path) -- reads one indexed file's full contents
+
+                Default to `SearchCodeTool` for an open-ended request. Report file names,
+                line numbers, and snippets exactly as returned -- these are what the rest of
+                the network will cite as evidence, so do not paraphrase code into vaguer
+                descriptions. If nothing matches, say so; do not guess at file contents.
+                {aaosa_instructions}
+            """,
+            "tools": ["SearchCodeTool", "ListRelatedFilesTool", "ReadFileTool"]
+        },
+
+        {
+            "name": "docs_agent",
+            "function": {
+                "description": "Search the indexed local documentation (README/architecture/API/etc.) for content relevant to a query.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Keywords describing what to search for in the docs."}
+                    },
+                    "required": ["query"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `docs_agent`. Your only tool is `SearchDocsTool` (needs query),
+                which keyword-searches the indexed markdown docs. Report matching doc file
+                names, line numbers, and snippets exactly as returned. If nothing matches,
+                say so plainly -- do not summarize documentation from general knowledge of
+                what an "authentication flow doc" might typically say.
+                {aaosa_instructions}
+            """,
+            "tools": ["SearchDocsTool"]
+        },
+
+        {
+            "name": "planner_agent",
+            "function": {
+                "description": "Given an issue's details plus retrieved code and documentation context, produce a concrete implementation plan.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "context": {
+                            "type": "string",
+                            "description": "The compiled issue text, code snippets (with file names), documentation snippets (with file names), and any PR summary gathered so far."
+                        }
+                    },
+                    "required": ["context"]
+                }
+            },
+            "instructions": """
+                You are `planner_agent`. You have no tools -- you work ONLY from the
+                `context` you are given, which was already retrieved and grounded by other
+                agents. Do not introduce any file name, function name, or fact that does
+                not appear in that context.
+
+                Produce a plan with these sections:
+                1. Root cause -- your best explanation of the bug/request, citing the
+                   specific file(s)/line(s) from the context that support it.
+                2. Affected files -- exactly the files named in the context that need changes.
+                3. Proposed steps -- a short, numbered list of concrete changes.
+                4. Risks -- anything the context suggests could go wrong or wasn't covered.
+                5. Testing strategy -- what you'd verify before merging.
+
+                If the context doesn't contain enough information for any section, say so
+                explicitly in that section rather than filling the gap with a guess.
+            """,
+            "tools": []
+        },
+
+        {
+            "name": "validation_agent",
+            "function": {
+                "description": "Independently fact-check a draft implementation plan against the issue tracker, codebase, and documentation before it is shown to the user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "issue_number": {"type": "int", "description": "The issue number the plan is about."},
+                        "draft_plan": {"type": "string", "description": "The full draft plan text produced by planner_agent."}
+                    },
+                    "required": ["issue_number", "draft_plan"]
+                }
+            },
+            "instructions": """
+                You are `validation_agent`, the independent auditor of this network. You do
+                not trust other agents' summaries. For the given issue_number, independently
+                call `GetIssueTool`, then use `SearchCodeTool` and `SearchDocsTool` with your
+                own queries derived from the issue, and `ReadFileTool` on any file the draft
+                plan names, to pull fresh evidence.
+
+                Compare every factual claim in `draft_plan` (file names, function names,
+                described bugs, root cause) against what these tools actually return.
+
+                Respond with:
+                - "VALIDATED" and a one-line confirmation if every claim is supported by
+                  what you independently retrieved, or
+                - "FLAGGED" followed by a specific list of which claim(s) are unsupported,
+                  missing, or contradicted by the raw data, so `orchestrator` can correct
+                  the plan.
+
+                Never approve a plan that names a file, function, or fact your own tool
+                calls did not confirm exists in the indexed data.
+            """,
+            "tools": ["GetIssueTool", "SearchCodeTool", "SearchDocsTool", "ReadFileTool"]
+        },
+
+        {
+            "name": "response_agent",
+            "function": {
+                "description": "Format a validated implementation plan into a final, evidence-cited answer for the user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "validated_plan": {
+                            "type": "string",
+                            "description": "The plan text, already confirmed VALIDATED by validation_agent, to format for the user."
+                        }
+                    },
+                    "required": ["validated_plan"]
+                }
+            },
+            "instructions": """
+                You are `response_agent`. You have no tools -- you only reformat content
+                that has already been retrieved and validated by other agents. Do not add
+                any new factual claim.
+
+                Produce the final answer in this shape:
+                - **Issue summary** (1-2 sentences)
+                - **Root cause**
+                - **Affected files**
+                - **Implementation plan** (numbered steps)
+                - **Risks**
+                - **Testing strategy**
+                - **Evidence** -- a bullet list citing exactly which source (issue number,
+                  file name + line number, or doc file name) backs each major claim above.
+
+                If `validated_plan` indicates the draft was FLAGGED and never corrected,
+                do not present it as final -- say clearly that verification failed and
+                more information is needed.
+            """,
+            "tools": []
+        },
+
+        {
+            "name": "GetIssueTool",
+            "function": {
+                "description": "Deterministically fetch an issue's title, body, labels, related files, related PRs, and commits from the local issue tracker.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "issue_number": {"type": "int"}
+                    },
+                    "required": ["issue_number"]
+                }
+            },
+            "class": "github_tools.GetIssueTool"
+        },
+        {
+            "name": "GetCommitHistoryTool",
+            "function": {
+                "description": "Deterministically fetch the commits linked to an issue.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "issue_number": {"type": "int"}
+                    },
+                    "required": ["issue_number"]
+                }
+            },
+            "class": "github_tools.GetCommitHistoryTool"
+        },
+        {
+            "name": "GetPullRequestTool",
+            "function": {
+                "description": "Deterministically fetch a pull request's details from the local PR tracker.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pr_number": {"type": "int"}
+                    },
+                    "required": ["pr_number"]
+                }
+            },
+            "class": "github_tools.GetPullRequestTool"
+        },
+        {
+            "name": "SearchCodeTool",
+            "function": {
+                "description": "Deterministically keyword-search the indexed local codebase.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"}
+                    },
+                    "required": ["query"]
+                }
+            },
+            "class": "code_search_tool.SearchCodeTool"
+        },
+        {
+            "name": "ListRelatedFilesTool",
+            "function": {
+                "description": "Deterministically list every file in the indexed local codebase.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            "class": "code_search_tool.ListRelatedFilesTool"
+        },
+        {
+            "name": "ReadFileTool",
+            "function": {
+                "description": "Deterministically read one indexed file's full contents.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"}
+                    },
+                    "required": ["path"]
+                }
+            },
+            "class": "code_search_tool.ReadFileTool"
+        },
+        {
+            "name": "SearchDocsTool",
+            "function": {
+                "description": "Deterministically keyword-search the indexed local documentation.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"}
+                    },
+                    "required": ["query"]
+                }
+            },
+            "class": "document_search_tool.SearchDocsTool"
+        }
+    ]
+}
