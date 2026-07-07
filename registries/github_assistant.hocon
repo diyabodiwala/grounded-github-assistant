@@ -67,8 +67,16 @@
                 7. If `validation_agent` flags any unsupported or contradicted claim,
                    go back and correct the plan (re-calling specialists if needed) before
                    proceeding. Never pass an answer forward that validation flagged.
-                8. Send the validated plan to `response_agent` to produce the final,
-                   evidence-cited answer for the user, then relay that answer verbatim.
+                8. Call `response_agent` with a `validated_plan` argument that contains
+                   BOTH the full text of `planner_agent`'s draft plan (root cause,
+                   affected files, proposed steps, risks, testing strategy -- all of it,
+                   verbatim) AND `validation_agent`'s verdict appended after it.
+                   NEVER send `validation_agent`'s verdict alone (e.g. just the words
+                   "VALIDATED: ...") as the entire `validated_plan` argument --
+                   `response_agent` has no tools and cannot recover missing plan content
+                   on its own, so omitting the plan text here forces it to either fail
+                   or invent something, and inventing is exactly what this network exists
+                   to prevent. Then relay `response_agent`'s answer verbatim.
 
                 {aaosa_instructions}
             """,
@@ -269,6 +277,15 @@
                 If `validated_plan` indicates the draft was FLAGGED and never corrected,
                 do not present it as final -- say clearly that verification failed and
                 more information is needed.
+
+                SAFEGUARD: if `validated_plan` does not actually contain plan content
+                (a root cause, affected files, proposed steps, etc.) -- for example, if
+                it is only a short confirmation like "VALIDATED: ..." with nothing else --
+                you do NOT have enough information to answer. Do not invent an issue
+                number, file name, or root cause to fill the gap under any circumstances.
+                Instead, respond exactly with: "I was not given the actual plan content
+                to format -- only a validation status. Please have orchestrator resend
+                the full draft plan alongside the validation verdict."
             """,
             "tools": []
         },

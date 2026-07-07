@@ -248,6 +248,45 @@ pytest tests/ -v
 All 14 tests pass without any network access or API key -- they call the
 coded tools directly against the local JSON/file data.
 
+## Validation finding from a live run (and the fix)
+
+Running this against a real LLM (Mistral) surfaced a genuine grounding
+failure worth documenting rather than hiding:
+
+**What happened:** `validation_agent` correctly re-derived all the facts
+independently and returned a short verdict (`"VALIDATED: All claims in the
+draft plan are confirmed..."`). `orchestrator` then called `response_agent`
+passing *only that one-line verdict* as `validated_plan` -- not the actual
+plan content. `response_agent`, given almost nothing to reformat, fabricated
+an entirely different, fictional issue (a nonexistent "issue #456" about
+database concurrency, citing files and a design doc that don't exist
+anywhere in this project) rather than reporting that it had insufficient
+input.
+
+**Root cause:** `orchestrator`'s instructions said to send "the validated
+plan" to `response_agent` without being explicit that this meant the full
+draft plan text *plus* the verdict -- not the verdict alone. The model's
+interpretation was reasonable given the ambiguity; the instruction was the
+bug, not the model.
+
+**The fix (now in this repo):**
+1. `orchestrator`'s instructions now explicitly require passing
+   `planner_agent`'s full draft plan text *and* `validation_agent`'s verdict
+   together to `response_agent`, and explicitly forbid sending the verdict
+   alone.
+2. `response_agent` now has an explicit safeguard: if it ever receives a
+   `validated_plan` that doesn't actually contain plan content, it must say
+   so plainly rather than invent anything to fill the gap.
+
+This is the kind of failure that's easy to miss if you only read the HOCON
+and never run a live query -- the instructions looked reasonable on paper.
+It's also a good illustration of why `validation_agent` existing isn't
+enough on its own: a correct validation step can still be undermined by a
+later hop that drops the content it validated. Anyone reviewing this repo
+should feel free to try reproducing it by asking a similarly worded query
+and checking the Internal Chat tab in nsflow for the exact `validated_plan`
+argument passed to `response_agent`.
+
 ## Future improvements
 
 - Swap `keyword_search()` in `data_access.py` for a real embeddings index
