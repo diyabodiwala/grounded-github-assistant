@@ -287,6 +287,14 @@ should feel free to try reproducing it by asking a similarly worded query
 and checking the Internal Chat tab in nsflow for the exact `validated_plan`
 argument passed to `response_agent`.
 
+**A second, smaller finding from the same live-testing pass:** `ListRelatedFilesTool`
+takes no real arguments, so its HOCON schema originally declared an empty
+`"properties": {}`. Mistral's function-calling API rejected that as an
+invalid tool schema at call time. Fixed by adding one harmless, optional,
+unused `reason` property so the schema is never empty -- the tool's own
+`invoke()` ignores it entirely. Worth knowing if you add more no-argument
+tools later.
+
 ## Future improvements
 
 - Swap `keyword_search()` in `data_access.py` for a real embeddings index

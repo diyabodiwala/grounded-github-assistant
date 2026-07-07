@@ -352,7 +352,12 @@
                 "description": "Deterministically list every file in the indexed local codebase.",
                 "parameters": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "reason": {
+                            "type": "string",
+                            "description": "Optional: why you're listing files. Not used by the tool -- present only so this schema isn't empty, since some providers reject a function with zero properties."
+                        }
+                    },
                     "required": []
                 }
             },
