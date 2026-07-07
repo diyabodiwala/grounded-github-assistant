@@ -137,8 +137,12 @@
                 Your name is `code_retrieval_agent`. You have three tools:
                 - `SearchCodeTool` (needs query) -- keyword-searches the indexed codebase
                   and returns matching files with line numbers and snippets
-                - `ListRelatedFilesTool` -- lists every file currently indexed
-                - `ReadFileTool` (needs path) -- reads one indexed file's full contents
+                - `ListRelatedFilesTool` -- lists every file currently indexed, both
+                  source code (data/sample_repo/) and documentation (data/docs/)
+                - `ReadFileTool` (needs path) -- reads one indexed file's full contents;
+                  checks both the source-code index and the documentation index, so a
+                  doc file name (e.g. "authentication_flow.md") works just as well as a
+                  code file name
 
                 Default to `SearchCodeTool` for an open-ended request. Report file names,
                 line numbers, and snippets exactly as returned -- these are what the rest of
@@ -226,7 +230,8 @@
                 not trust other agents' summaries. For the given issue_number, independently
                 call `GetIssueTool`, then use `SearchCodeTool` and `SearchDocsTool` with your
                 own queries derived from the issue, and `ReadFileTool` on any file the draft
-                plan names, to pull fresh evidence.
+                plan names -- `ReadFileTool` covers both source files and documentation
+                files, so use it to verify a named .md doc just as you would a .py file.
 
                 Compare every factual claim in `draft_plan` (file names, function names,
                 described bugs, root cause) against what these tools actually return.
@@ -349,7 +354,7 @@
         {
             "name": "ListRelatedFilesTool",
             "function": {
-                "description": "Deterministically list every file in the indexed local codebase.",
+                "description": "Deterministically list every file in the indexed local codebase and documentation set.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -366,7 +371,7 @@
         {
             "name": "ReadFileTool",
             "function": {
-                "description": "Deterministically read one indexed file's full contents.",
+                "description": "Deterministically read one indexed file's full contents (source code or documentation).",
                 "parameters": {
                     "type": "object",
                     "properties": {

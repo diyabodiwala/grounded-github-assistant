@@ -80,12 +80,20 @@ def test_search_docs_finds_authentication_flow():
 
 def test_list_related_files_returns_all_indexed_files():
     result = ListRelatedFilesTool().invoke({}, {})
-    assert set(result["files"]) == {"auth.py", "database.py", "oauth.py", "utils.py"}
+    assert set(result["code_files"]) == {"auth.py", "database.py", "oauth.py", "utils.py"}
+    assert "authentication_flow.md" in result["doc_files"]
 
 
 def test_read_file_returns_full_contents():
     result = ReadFileTool().invoke({"path": "oauth.py"}, {})
     assert "is_state_valid" in result["content"]
+
+
+def test_read_file_can_read_a_doc_file_too():
+    result = ReadFileTool().invoke({"path": "authentication_flow.md"}, {})
+    assert "error" not in result
+    assert "is_state_valid" in result["content"]
+    assert result["source"] == "data/docs/ (local indexed documentation)"
 
 
 def test_read_file_unknown_file_reports_not_found():

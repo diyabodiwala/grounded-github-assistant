@@ -94,8 +94,8 @@ independent verification pass before anything reaches the user.
 | `GetCommitHistoryTool` | `get_commit_history(issue_number)` | `data/issues.json` (`commits` field per issue) |
 | `GetPullRequestTool` | `get_pull_request(pr_number)` | `data/pull_requests.json` |
 | `SearchCodeTool` | `search_code(query)` | keyword search over `data/sample_repo/*.py` |
-| `ListRelatedFilesTool` | `list_related_files()` | directory listing of `data/sample_repo/` |
-| `ReadFileTool` | `read_file(path)` | reads one file from `data/sample_repo/` (basename-only, blocks path traversal) |
+| `ListRelatedFilesTool` | `list_related_files()` | directory listing of `data/sample_repo/` and `data/docs/` |
+| `ReadFileTool` | `read_file(path)` | reads one file from `data/sample_repo/` or `data/docs/` (basename-only, blocks path traversal) |
 | `SearchDocsTool` | `search_docs(query)` | keyword search over `data/docs/*.md` |
 
 ## How grounding works
@@ -294,6 +294,33 @@ invalid tool schema at call time. Fixed by adding one harmless, optional,
 unused `reason` property so the schema is never empty -- the tool's own
 `invoke()` ignores it entirely. Worth knowing if you add more no-argument
 tools later.
+
+**A third finding, and the most interesting one:** after the two fixes
+above, a live run correctly triggered the `response_agent` safeguard
+itself -- it refused to present an answer, saying validation had flagged
+"documentation files that do not appear to exist in the indexed codebase."
+That sounded like `planner_agent` hallucinating a doc file name, but the
+real cause was narrower and more subtle: `ReadFileTool` and
+`ListRelatedFilesTool` only ever looked inside `data/sample_repo/` --
+they had no way to see `data/docs/` at all. So when `validation_agent`
+tried to verify a real, existing documentation file (e.g.
+`authentication_flow.md`) that the plan correctly referenced, `ReadFileTool`
+reported "not found" purely because it was looking in the wrong directory,
+not because the file didn't exist. `validation_agent` correctly flagged
+what looked like an unsupported claim, and `response_agent`'s safeguard
+correctly refused to present it -- the *system* behaved exactly as
+designed given the information it had; the bug was that one tool's scope
+was narrower than the domain it was being asked to verify.
+
+**Fix:** `ReadFileTool` now checks both `data/sample_repo/` and
+`data/docs/` (trying source code first, then documentation), and
+`ListRelatedFilesTool` now returns `code_files` and `doc_files` separately
+covering both. This is arguably the most instructive of the three bugs:
+it's a reminder that a "no hallucination" safeguard is only as good as the
+tools backing it -- if a verification tool can't see the whole relevant
+data surface, it will produce false negatives that look identical to real
+hallucinations from the outside, and it takes checking the tool's actual
+scope (not just the agent's tool list) to tell the difference.
 
 ## Future improvements
 
