@@ -42,5 +42,32 @@
     "related_files": ["utils.py"],
     "related_pull_requests": [],
     "commits": []
+  },
+  "47": {
+    "number": 47,
+    "title": "No way to log out -- session tokens are never invalidated on demand",
+    "body": "AuthService supports login() and validate_session(), but there is no logout() or invalidate_session() method. Once a token is issued it stays valid in _sessions until it naturally expires via token_ttl_seconds. Users have no way to explicitly end their session (e.g. on a shared computer), which is a real security gap.",
+    "labels": ["bug", "authentication", "security"],
+    "related_files": ["auth.py"],
+    "related_pull_requests": [],
+    "commits": []
+  },
+  "58": {
+    "number": 58,
+    "title": "InMemoryDatabase is not thread-safe under concurrent access",
+    "body": "InMemoryDatabase.put/get/delete operate directly on a plain dict with no locking. Under concurrent requests (e.g. multiple worker threads), this can lead to race conditions -- lost writes, or a KeyError from delete() racing a get(). Needs a lock around the internal _store, or a switch to a thread-safe structure.",
+    "labels": ["bug", "database", "concurrency"],
+    "related_files": ["database.py"],
+    "related_pull_requests": [],
+    "commits": []
+  },
+  "63": {
+    "number": 63,
+    "title": "truncate() can split a multi-character symbol at the cutoff point",
+    "body": "truncate() cuts text at a fixed character index (max_length - 1) and appends an ellipsis. For text containing combined character sequences (e.g. an emoji built from multiple code points, or a base character plus a combining accent), cutting mid-sequence can leave a broken, unrenderable fragment right before the ellipsis. Should cut on a grapheme-cluster boundary instead of a raw character index.",
+    "labels": ["bug", "utils"],
+    "related_files": ["utils.py"],
+    "related_pull_requests": [],
+    "commits": []
   }
 }

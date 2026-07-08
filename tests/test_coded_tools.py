@@ -55,6 +55,24 @@ def test_get_pull_request_unknown_pr_reports_not_found():
     assert result["error"] == "not_found"
 
 
+def test_get_issue_47_logout_gap():
+    result = GetIssueTool().invoke({"issue_number": 47}, {})
+    assert "error" not in result
+    assert "auth.py" in result["related_files"]
+
+
+def test_get_issue_58_database_thread_safety():
+    result = GetIssueTool().invoke({"issue_number": 58}, {})
+    assert "error" not in result
+    assert "database.py" in result["related_files"]
+
+
+def test_get_issue_63_truncate_grapheme_cutoff():
+    result = GetIssueTool().invoke({"issue_number": 63}, {})
+    assert "error" not in result
+    assert "utils.py" in result["related_files"]
+
+
 def test_search_code_finds_oauth_state_files():
     result = SearchCodeTool().invoke({"query": "oauth state validation callback"}, {})
     files = [r["file"] for r in result["results"]]

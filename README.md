@@ -168,6 +168,26 @@ Expected flow: retrieval correctly surfaces `utils.py` and nothing from
 `auth.py`/`oauth.py`, demonstrating the retrieval isn't just keyed off issue
 number but actually discriminates by content.
 
+### The full local issue set
+
+`data/issues.json` contains 6 mock issues in total, each grounded in a real,
+verifiable gap in `data/sample_repo/` -- not invented bugs with no basis in
+the actual sample code:
+
+| Issue | Title | Real gap in the code |
+|---|---|---|
+| #15 | OAuth login intermittently fails after redirect | `auth.py`'s `handle_oauth_callback` accepts `state` but never calls `oauth.py`'s `is_state_valid` |
+| #22 | Session tokens never expire under load testing | (scenario issue -- see `auth.py`'s `token_ttl_seconds` handling) |
+| #31 | Add slugify support for unicode characters | `utils.py`'s `slugify()` strips non-ASCII characters entirely |
+| #47 | No way to log out -- tokens are never invalidated on demand | `auth.py`'s `AuthService` has `login()`/`validate_session()` but no `logout()`/`invalidate_session()` |
+| #58 | `InMemoryDatabase` is not thread-safe under concurrent access | `database.py`'s `_store` dict has no locking around `put`/`get`/`delete` |
+| #63 | `truncate()` can split a multi-character symbol at the cutoff | `utils.py`'s `truncate()` cuts on a raw character index, not a grapheme boundary |
+
+Every one of these was verified end-to-end before being added: each
+issue's `related_files` entry is confirmed to actually surface via
+`SearchCodeTool` for a realistic query about that issue (see
+`tests/test_coded_tools.py`), not just declared in the JSON and hoped for.
+
 ## Project layout
 
 ```
