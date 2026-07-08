@@ -265,7 +265,7 @@ pip install pytest
 pytest tests/ -v
 ```
 
-All 14 tests pass without any network access or API key -- they call the
+All 18 tests pass without any network access or API key -- they call the
 coded tools directly against the local JSON/file data.
 
 ## Validation finding from a live run (and the fix)
