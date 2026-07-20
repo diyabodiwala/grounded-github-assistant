@@ -209,13 +209,6 @@ issue's `related_files` entry is confirmed to actually surface via
 └── README.md
 ```
 
-Note on structure: the assignment's plan sketched a generic
-`agents/*.py` + `tools/*.py` layout. Real neuro-san doesn't work that way --
-agents are declared as data in the HOCON registry file (instructions +
-tool wiring), and only the *coded tools* are Python, living under
-`coded_tools/<network_name>/`. This repo follows the actual framework
-convention rather than forcing a generic layout onto it.
-
 ## Running it
 
 ```bash
