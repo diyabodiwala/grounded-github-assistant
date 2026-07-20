@@ -170,11 +170,6 @@ the actual sample code:
 | #58 | `InMemoryDatabase` is not thread-safe under concurrent access | `database.py`'s `_store` dict has no locking around `put`/`get`/`delete` |
 | #63 | `truncate()` can split a multi-character symbol at the cutoff | `utils.py`'s `truncate()` cuts on a raw character index, not a grapheme boundary |
 
-Every one of these was verified end-to-end before being added: each
-issue's `related_files` entry is confirmed to actually surface via
-`SearchCodeTool` for a realistic query about that issue (see
-`tests/test_coded_tools.py`), not just declared in the JSON and hoped for.
-
 ## Project layout
 
 ```
