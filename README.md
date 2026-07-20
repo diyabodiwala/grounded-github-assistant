@@ -127,19 +127,6 @@ Every tool that hits a miss (`not_found`) says so explicitly, and every
 agent's instructions forbid treating a `not_found`/error result as "no
 issue" -- they must relay the gap rather than assume a clean/empty answer.
 
-### A deliberate simplification: keyword search, not embeddings
-
-The JD/plan mentions FAISS + sentence-transformers for `search_code` /
-`search_docs`. For a small, fixed local corpus like this one, a plain
-keyword/line-match search (see `coded_tools/github_assistant/data_access.py`)
-gives the same "retrieve real snippets, then ground the LLM in them"
-guarantee, is fully deterministic and unit-testable with zero model
-downloads or network calls, and keeps the project scoped to what a 2-day
-assessment can actually finish end-to-end. Swapping in a real embeddings
-index later is a drop-in replacement for `keyword_search()` -- it wouldn't
-require touching the agent network, the HOCON file, or any other tool. See
-**Future Improvements** below.
-
 ## Example queries and outputs
 
 **Query:** `Help me resolve issue #15`
